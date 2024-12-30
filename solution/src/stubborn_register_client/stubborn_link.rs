@@ -35,16 +35,7 @@ impl StubbornLink {
     }
 
     pub async fn add_msg(&self, msg: Arc<SystemRegisterCommand>) {
-        let ack = Acknowledgment {
-            rank: self.target_rank,
-            msg_type: match msg.content {
-                SystemRegisterCommandContent::ReadProc => AckType::ReadProc,
-                SystemRegisterCommandContent::Value { .. } => AckType::Value,
-                SystemRegisterCommandContent::WriteProc { .. } => AckType::WriteProc,
-                SystemRegisterCommandContent::Ack => AckType::ACK
-            },
-            proc_id: msg.header.msg_ident,
-        };
+        let ack = Acknowledgment::from_cmd(msg.deref().clone(), self.target_rank);
         
         let timer = TimerHandle::start_timer(msg, self.msg_tx.clone());
         self.pending_acks.lock().await.insert(ack, timer);

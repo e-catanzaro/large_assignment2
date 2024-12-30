@@ -136,13 +136,13 @@ pub enum AckType {
 
 #[derive(Clone,Hash,Eq,PartialEq,Copy)]
 pub struct Acknowledgment {
-    pub(crate) rank : u8,
+    pub proc_id: u8,
     pub msg_type : AckType,
-    pub proc_id : Uuid,
+    pub op_id: Uuid,
 }
 
 impl Acknowledgment {
-    pub fn from_cmd(cmd: SystemRegisterCommand, rank: u8) -> Self {
+    pub fn from_cmd(cmd: SystemRegisterCommand, target_rank : u8) -> Self {
         Self {
             msg_type:  match cmd.content {
                 SystemRegisterCommandContent::ReadProc => AckType::ReadProc,
@@ -150,8 +150,8 @@ impl Acknowledgment {
                 SystemRegisterCommandContent::WriteProc { .. } => AckType::WriteProc,
                 SystemRegisterCommandContent::Ack => AckType::ACK,
             },
-            rank: rank,
-            proc_id: cmd.header.msg_ident
+            proc_id: target_rank,
+            op_id: cmd.header.msg_ident
         }
     }
 }
@@ -184,17 +184,13 @@ pub async fn deserialize_ack(data: &mut (dyn AsyncRead + Send + Unpin),
     data.read_exact(&mut remaining_message).await?;
     raw_message = [raw_message, remaining_message.to_vec()].concat();
 
-    let mut hash : [u8;32] = [0u8;32];
-    data.read_exact(&mut hash).await?;
-    raw_message = [raw_message, hash.to_vec()].concat();
-
     let mut proc_id_bytes = [0u8;16];
-    proc_id_bytes.copy_from_slice(&raw_message[8..24]);
+    proc_id_bytes.copy_from_slice(&remaining_message[..16]);
 
     let ack = Acknowledgment {
-        rank,
+        proc_id: rank,
         msg_type,
-        proc_id: Uuid::from_bytes(uuid::Bytes::from(proc_id_bytes)),
+        op_id: Uuid::from_bytes(uuid::Bytes::from(proc_id_bytes)),
     };
 
     Ok((ack,  is_hmac_tag_valid(raw_message.as_slice(), hmac_key)))
@@ -205,16 +201,16 @@ pub async fn serialize_ack(response: &Acknowledgment,
                            hmac_key: &[u8]) -> Result<(), Error> {
 
     let mut raw_message : Vec<u8> = [MAGIC_NUMBER.to_vec(), [0u8;2].to_vec()].concat();
-    raw_message = [raw_message, response.rank.to_be_bytes().to_vec()].concat();
+    raw_message = [raw_message, response.proc_id.to_be_bytes().to_vec()].concat();
 
     let type_bytes = match response.msg_type {
-        AckType::ReadProc => 43u8,
-        AckType::Value => 44u8,
-        AckType::WriteProc => 45u8,
-        AckType::ACK => 46u8,
+        AckType::ReadProc => 0x43u8,
+        AckType::Value => 0x44u8,
+        AckType::WriteProc => 0x45u8,
+        AckType::ACK => 0x46u8,
     }.to_be_bytes().to_vec();
 
-    raw_message = [raw_message, type_bytes, response.proc_id.as_bytes().to_vec()].concat();
+    raw_message = [raw_message, type_bytes, response.op_id.as_bytes().to_vec()].concat();
 
     let mut sha = HmacSha256::new_from_slice(hmac_key).unwrap();
     sha.update(raw_message.as_slice());

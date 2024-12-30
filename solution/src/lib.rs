@@ -132,16 +132,7 @@ async fn handle_stream(stream: TcpStream,
             RegisterCommand::System(command) => {
                 let system_success_tx = system_success_tx.clone();
 
-                let ack = Arc::new(Acknowledgment {
-                    rank,
-                    msg_type: match command.content {
-                        SystemRegisterCommandContent::ReadProc => AckType::ReadProc,
-                        SystemRegisterCommandContent::Value { .. } => AckType::Value,
-                        SystemRegisterCommandContent::WriteProc { .. } => AckType::WriteProc,
-                        SystemRegisterCommandContent::Ack => AckType::ACK
-                    },
-                    proc_id: command.header.msg_ident,
-                });
+                let ack = Arc::new(Acknowledgment::from_cmd(command.clone(), rank));
 
                 let callback: SystemCallbackType = Box::new(|| Box::pin(async move {
                     system_success_tx.send(*ack.deref()).unwrap()
