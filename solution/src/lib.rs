@@ -68,15 +68,15 @@ pub async fn run_register_process(config: Configuration) {
     }
 }
 
-async fn listen_commands(mut system_queue: UnboundedReceiver<(SystemRegisterCommand, SystemCallbackType)>,
-                         mut client_queue: UnboundedReceiver<(ClientRegisterCommand, SuccessCallbackType)>,
+async fn listen_commands(mut sys_queue: UnboundedReceiver<(SystemRegisterCommand, SystemCallbackType)>,
+                         mut queue_client: UnboundedReceiver<(ClientRegisterCommand, SuccessCallbackType)>,
                          registers_manager: RegManager) {
     loop {
         tokio::select! {
-            Some((cmd, cb)) = system_queue.recv() => {
+            Some((cmd, cb)) = sys_queue.recv() => {
                 registers_manager.system_to_handle(cmd, cb);
             },
-            Some((cmd, cb)) = client_queue.recv() => {
+            Some((cmd, cb)) = queue_client.recv() => {
                 registers_manager.client_to_handle(cmd, cb);
             }
         }
