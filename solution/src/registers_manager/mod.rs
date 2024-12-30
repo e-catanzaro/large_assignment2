@@ -7,12 +7,12 @@ use crate::registers_manager::register_handler::RegisterHandler;
 mod register_handler;
 
 #[derive(Clone)]
-pub struct RegistersManager {
-    client_tx: UnboundedSender<(ClientRegisterCommand, SuccessCallbackType)>,
-    system_tx: UnboundedSender<(SystemRegisterCommand, SystemCallbackType)>
+pub struct RegManager {
+    msg_client_tx: UnboundedSender<(ClientRegisterCommand, SuccessCallbackType)>,
+    msg_system_tx: UnboundedSender<(SystemRegisterCommand, SystemCallbackType)>
 }
 
-impl RegistersManager {
+impl RegManager {
     pub fn build(rank: u8,
                  register_client: Arc<dyn RegisterClient>,
                  sectors_manager: Arc<dyn SectorsManager>,
@@ -25,8 +25,8 @@ impl RegistersManager {
         ));
 
         Self {
-            client_tx,
-            system_tx
+            msg_client_tx: client_tx,
+            msg_system_tx: system_tx
         }
     }
 
@@ -82,6 +82,7 @@ impl RegistersManager {
         let opt = active_registers.get(&idx);
 
         match opt {
+            Some(reg_to_load) => reg_to_load.clone(),
             None => {
                 let handler = RegisterHandler::build(
                     idx, rank, processes_count, register_client, sectors_manager
@@ -90,15 +91,14 @@ impl RegistersManager {
                 active_registers.insert(idx, handler.clone());
                 handler
             }
-            Some(handler) => handler.clone()
         }
     }
 
-    pub fn add_client_cmd(&self, cmd: ClientRegisterCommand, cb: SuccessCallbackType) {
-        let _ = self.client_tx.send((cmd, cb));
+    pub fn client_to_handle(&self, cmd: ClientRegisterCommand, cb: SuccessCallbackType) {
+        let _ = self.msg_client_tx.send((cmd, cb));
     }
 
-    pub fn add_system_cmd(&self, cmd: SystemRegisterCommand, cb: SystemCallbackType) {
-        let _ = self.system_tx.send((cmd, cb));
+    pub fn system_to_handle(&self, cmd: SystemRegisterCommand, cb: SystemCallbackType) {
+        let _ = self.msg_system_tx.send((cmd, cb));
     }
 }

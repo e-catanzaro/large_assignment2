@@ -32,7 +32,7 @@ impl RegisterHandler {
             rank, sector_idx, register_client, sectors_manager, num_processes
         ).await;
 
-        tokio::spawn(Self::handler_background(
+        tokio::spawn(Self::thread_handler_back(
             client_rx, system_rx, return_rx, return_tx, register
         ));
 
@@ -42,22 +42,28 @@ impl RegisterHandler {
         }
     }
 
-    async fn handler_background(mut client_rx: UnboundedReceiver<(ClientRegisterCommand, SuccessCallbackType)>,
-                                mut system_rx: UnboundedReceiver<(SystemRegisterCommand, SystemCallbackType)>,
-                                mut return_rx: UnboundedReceiver<()>,
-                                return_tx: UnboundedSender<()>,
-                                mut register: Box<dyn AtomicRegister>) {
-        let mut is_client_cmd_running = false;
+    async fn thread_handler_back(mut client_rx: UnboundedReceiver<(ClientRegisterCommand, SuccessCallbackType)>,
+                                 mut system_rx: UnboundedReceiver<(SystemRegisterCommand, SystemCallbackType)>,
+                                 mut return_rx: UnboundedReceiver<()>,
+                                 return_tx: UnboundedSender<()>,
+                                 mut register: Box<dyn AtomicRegister>) {
+        let mut is_client_cmd_handled = false;
 
         loop {
-            if is_client_cmd_running {
+            if is_client_cmd_handled {
                 let result = Self::wait_cmd_occupied_client(&mut system_rx, &mut return_rx, &mut register).await;
-                if result.is_none() { break; }
-                if result.unwrap() == true { is_client_cmd_running = false; }
+                if result.is_some(){
+                    if result.unwrap() == true {
+                        is_client_cmd_handled = false;
+                    }
+                }
             } else {
                 let result = Self::wait_cmd_free_client(&mut client_rx, &mut system_rx, return_tx.clone(), &mut register).await;
-                if result.is_none() { break; }
-                if result.unwrap() == true { is_client_cmd_running = true; }
+                if result.is_some() {
+                    if result.unwrap() == true {
+                        is_client_cmd_handled = true;
+                    }
+                }
             }
         }
     }
@@ -83,14 +89,14 @@ impl RegisterHandler {
 
     async fn wait_cmd_occupied_client(system_rx: &mut UnboundedReceiver<(SystemRegisterCommand, SystemCallbackType)>,
                                       return_rx: &mut UnboundedReceiver<()>,
-                                      register: &mut Box<dyn AtomicRegister>) -> Option<bool> {
+                                      reg: &mut Box<dyn AtomicRegister>) -> Option<bool> {
         tokio::select! {
             biased;
             Some(()) = return_rx.recv() => {
                 Some(true)
             },
             Some((cmd, cb)) = system_rx.recv() => {
-                register.system_command(cmd).await;
+                reg.system_command(cmd).await;
                 cb().await;
                 Some(false)
             },

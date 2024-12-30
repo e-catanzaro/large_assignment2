@@ -1,4 +1,4 @@
-use crate::registers_manager::RegistersManager;
+use crate::registers_manager::RegManager;
 use crate::stubborn_register_client::StubbornRegisterClient;
 use crate::transfer::{serialize_ack, serialize_response, Acknowledgment, OperationError, OperationResult, RegisterResponse};
 pub use atomic_register_public::*;
@@ -39,15 +39,14 @@ pub async fn run_register_process(config: Configuration) {
     let client_key = Arc::new(config.hmac_client_key);
 
     let sectors_manager = build_sectors_manager(config.public.storage_dir).await;
-    let register_client = Arc::new(StubbornRegisterClient::build(config.public.tcp_locations.clone(), system_key.clone(), config.public.self_rank, system_tx.clone()));
+    let stub_reg_client = Arc::new(StubbornRegisterClient::build(config.public.tcp_locations.clone(), system_key.clone(), config.public.self_rank, system_tx.clone()));
 
-    let location = config.public.tcp_locations.get((config.public.self_rank - 1) as usize).unwrap();
+    let data_socket = config.public.tcp_locations.get((config.public.self_rank - 1) as usize).unwrap();
+    let listener = TcpListener::bind((data_socket.0.as_str(), data_socket.1)).await.unwrap();
 
-    let listener = TcpListener::bind((location.0.as_str(), location.1)).await.unwrap();
-
-    let registers_manager = RegistersManager::build(
+    let registers_manager = RegManager::build(
         config.public.self_rank,
-        register_client,
+        stub_reg_client,
         sectors_manager,
         config.public.tcp_locations.len() as u8
     );
@@ -71,14 +70,14 @@ pub async fn run_register_process(config: Configuration) {
 
 async fn listen_commands(mut system_queue: UnboundedReceiver<(SystemRegisterCommand, SystemCallbackType)>,
                          mut client_queue: UnboundedReceiver<(ClientRegisterCommand, SuccessCallbackType)>,
-                         registers_manager: RegistersManager) {
+                         registers_manager: RegManager) {
     loop {
         tokio::select! {
             Some((cmd, cb)) = system_queue.recv() => {
-                registers_manager.add_system_cmd(cmd, cb);
+                registers_manager.system_to_handle(cmd, cb);
             },
             Some((cmd, cb)) = client_queue.recv() => {
-                registers_manager.add_client_cmd(cmd, cb);
+                registers_manager.client_to_handle(cmd, cb);
             }
         }
     }
@@ -106,7 +105,7 @@ async fn handle_stream(stream: TcpStream,
         }
 
         let (command, is_valid) = extract_next_command(&mut read_stream, &system_key, &client_key).await;
-        let idx = extract_index(&command);
+        let idx = get_index_cmd(&command);
 
         if !is_command_ok(&command, is_valid, idx, n_sectors, client_success_tx.clone()).await {
             continue;
@@ -174,13 +173,6 @@ async fn extract_next_command(tcp_stream: &mut (dyn AsyncRead + std::marker::Sen
     };
 }
 
-fn extract_index(command: &RegisterCommand) -> SectorIdx {
-    match command {
-        RegisterCommand::Client(cmd) => cmd.header.sector_idx,
-        RegisterCommand::System(cmd) => cmd.header.sector_idx
-    }
-}
-
 async fn is_command_ok(command: &RegisterCommand,
                        is_hmac_valid: bool,
                        sector_idx: SectorIdx,
@@ -210,4 +202,11 @@ async fn is_command_ok(command: &RegisterCommand,
     }
 
     false
+}
+
+fn get_index_cmd(command: &RegisterCommand) -> SectorIdx {
+    match command {
+        RegisterCommand::Client(cmd) => cmd.header.sector_idx,
+        RegisterCommand::System(cmd) => cmd.header.sector_idx
+    }
 }
