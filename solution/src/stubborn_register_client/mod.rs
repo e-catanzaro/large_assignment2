@@ -18,18 +18,20 @@ pub struct StubbornRegisterClient {
 #[async_trait::async_trait]
 impl RegisterClient for StubbornRegisterClient {
     async fn send(&self, msg: crate::Send) {
-        if self.rank == msg.target {
-            let callback: SystemCallbackType = Box::new(|| Box::pin(async move { }));
-            self.self_channel.send((msg.cmd.deref().clone(), callback)).unwrap();
-        } else {
-            let link = self.links.get(&msg.target).unwrap();
-            link.send_message(msg.cmd).await;
-        }
+        // Box::new(|| Box::pin(async move { }))
+       if msg.target != self.rank {
+           self.links.get(&msg.target).unwrap().send_message(msg.cmd).await;
+       } else {
+           self.self_channel.send((msg.cmd.deref().clone(), Box::new(|| Box::pin(async move { })))).unwrap()
+       }
     }
 
     async fn broadcast(&self, msg: Broadcast) {
-        for target in 1..self.processes_count + 1 {
-            self.send(crate::Send { cmd: msg.cmd.clone(), target}).await;
+        for dest_proc in 1..(self.processes_count + 1){
+            self.send(crate::Send{
+                cmd: msg.cmd.clone(),
+                target: dest_proc
+            }).await;
         }
     }
 }
