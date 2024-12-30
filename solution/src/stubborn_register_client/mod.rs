@@ -23,7 +23,7 @@ impl RegisterClient for StubbornRegisterClient {
             self.self_channel.send((msg.cmd.deref().clone(), callback)).unwrap();
         } else {
             let link = self.links.get(&msg.target).unwrap();
-            link.add_msg(msg.cmd).await;
+            link.send_message(msg.cmd).await;
         }
     }
 
@@ -45,7 +45,7 @@ impl StubbornRegisterClient {
             let target = target as u8;
 
             if target != rank {
-                links.insert(target, StubbornLink::build(target, locations.clone(), key.clone()));
+                links.insert(target, StubbornLink::new(target, locations.clone(), key.clone()));
             }
         }
 

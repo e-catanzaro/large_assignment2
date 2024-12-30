@@ -1,6 +1,6 @@
 use crate::registers_manager::RegistersManager;
 use crate::stubborn_register_client::StubbornRegisterClient;
-use crate::transfer::{serialize_ack, serialize_response, AckType, Acknowledgment, OperationError, OperationResult, RegisterResponse};
+use crate::transfer::{serialize_ack, serialize_response, Acknowledgment, OperationError, OperationResult, RegisterResponse};
 pub use atomic_register_public::*;
 pub use domain::*;
 use hmac::Hmac;
@@ -62,7 +62,6 @@ pub async fn run_register_process(config: Configuration) {
             system_key.clone(),
             client_key.clone(),
             config.public.n_sectors,
-            config.public.self_rank,
             system_tx.clone(),
             client_tx.clone()
         ));
@@ -88,7 +87,6 @@ async fn handle_stream(stream: TcpStream,
                        system_key: Arc<[u8; 64]>,
                        client_key: Arc<[u8; 32]>,
                        n_sectors: u64,
-                       rank: u8,
                        system_tx: UnboundedSender<(SystemRegisterCommand, SystemCallbackType)>,
                        client_tx: UnboundedSender<(ClientRegisterCommand, SuccessCallbackType)>) {
     let (mut read_stream, write_stream) = stream.into_split();
@@ -132,16 +130,7 @@ async fn handle_stream(stream: TcpStream,
             RegisterCommand::System(command) => {
                 let system_success_tx = system_success_tx.clone();
 
-                let ack = Arc::new(Acknowledgment {
-                    rank,
-                    msg_type: match command.content {
-                        SystemRegisterCommandContent::ReadProc => AckType::ReadProc,
-                        SystemRegisterCommandContent::Value { .. } => AckType::Value,
-                        SystemRegisterCommandContent::WriteProc { .. } => AckType::WriteProc,
-                        SystemRegisterCommandContent::Ack => AckType::ACK
-                    },
-                    proc_id: command.header.msg_ident,
-                });
+                let ack = Arc::new(Acknowledgment::from_cmd(command.clone()));
 
                 let callback: SystemCallbackType = Box::new(|| Box::pin(async move {
                     system_success_tx.send(*ack.deref()).unwrap()
