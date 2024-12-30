@@ -1,21 +1,21 @@
+use crate::registers_manager::RegistersManager;
+use crate::stubborn_register_client::StubbornRegisterClient;
+use crate::transfer::{serialize_ack, serialize_response, AckType, Acknowledgment, OperationError, OperationResult, RegisterResponse};
+pub use atomic_register_public::*;
+pub use domain::*;
+use hmac::Hmac;
+pub use register_client_public::*;
+pub use sectors_manager_public::*;
+use sha2::Sha256;
 use std::future::Future;
 use std::ops::Deref;
 use std::pin::Pin;
 use std::sync::Arc;
-use hmac::Hmac;
-use sha2::Sha256;
 use tokio::io::AsyncRead;
-use tokio::net::{TcpListener, TcpStream};
 use tokio::net::tcp::OwnedWriteHalf;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-pub use domain::*;
-pub use atomic_register_public::*;
-pub use register_client_public::*;
-pub use sectors_manager_public::*;
 pub use transfer_public::*;
-use crate::stubborn_register_client::StubbornRegisterClient;
-use crate::registers_manager::RegistersManager;
-use crate::transfer::{Acknowledgment, MessageType, OperationError, OperationResult, RegisterResponse, serialize_ack, serialize_register_response};
 
 mod domain;
 mod transfer_public;
@@ -133,14 +133,14 @@ async fn handle_stream(stream: TcpStream,
                 let system_success_tx = system_success_tx.clone();
 
                 let ack = Arc::new(Acknowledgment {
+                    rank,
                     msg_type: match command.content {
-                        SystemRegisterCommandContent::ReadProc => MessageType::ReadProc,
-                        SystemRegisterCommandContent::Value { .. } => MessageType::Value,
-                        SystemRegisterCommandContent::WriteProc { .. } => MessageType::WriteProc,
-                        SystemRegisterCommandContent::Ack => MessageType::Ack
+                        SystemRegisterCommandContent::ReadProc => AckType::ReadProc,
+                        SystemRegisterCommandContent::Value { .. } => AckType::Value,
+                        SystemRegisterCommandContent::WriteProc { .. } => AckType::WriteProc,
+                        SystemRegisterCommandContent::Ack => AckType::ACK
                     },
-                    process_rank: rank,
-                    msg_ident: command.header.msg_ident,
+                    proc_id: command.header.msg_ident,
                 });
 
                 let callback: SystemCallbackType = Box::new(|| Box::pin(async move {
@@ -161,7 +161,7 @@ async fn handle_write(mut client_success_rx: UnboundedReceiver<RegisterResponse>
     loop {
         tokio::select! {
             Some(response) = client_success_rx.recv() => {
-                serialize_register_response(&response, &mut write_stream, client_key.deref()).await.unwrap();
+                serialize_response(&response, &mut write_stream, client_key.deref()).await.unwrap();
             },
             Some(ack) = system_success_rx.recv() => {
                 serialize_ack(&ack, &mut write_stream, system_key.deref()).await.unwrap();
