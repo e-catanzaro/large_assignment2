@@ -5,32 +5,33 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::time;
 use crate::SystemRegisterCommand;
 
-struct StopTimer { }
+struct StopTheTicks {}
 
-pub struct TimerHandle {
-    stop_tx: Sender<StopTimer>,
+pub(crate) struct TickHandler {
+    stop_tx : Sender<StopTheTicks>
 }
 
-impl TimerHandle {
-    pub async fn stop(self) {
-        self.stop_tx.try_send(StopTimer {}).unwrap();
+impl TickHandler {
+    pub(crate) async fn stop(&self) {
+        let _ = self.stop_tx.send(StopTheTicks {});
     }
 
-    pub fn start_timer(message: Arc<SystemRegisterCommand>, sender: UnboundedSender<Arc<SystemRegisterCommand>>) -> TimerHandle {
-        let (stop_tx, mut stop_rx) = mpsc::channel(1);
+    pub(crate) fn start_ticks(msg : Arc<SystemRegisterCommand>, interval : Duration, sender : UnboundedSender<Arc<SystemRegisterCommand>>) -> TickHandler {
+
+        let (stop_tx, mut stop_rx) = mpsc::channel::<StopTheTicks>(1);
 
         tokio::spawn(async move {
-            let mut interval = time::interval(Duration::from_millis(250));
+            let mut interval = time::interval(interval);
 
-            loop {
+            loop{
                 tokio::select! {
                     biased;
-                    _ = stop_rx.recv() => break,
-                    _ = interval.tick() => sender.send(message.clone()).unwrap()
+                    Some(_) = stop_rx.recv() => { break; },
+                    _ = interval.tick() => {let _ = sender.send(msg.clone());}
                 }
             }
         });
 
-        TimerHandle { stop_tx }
+        TickHandler{stop_tx}
     }
 }

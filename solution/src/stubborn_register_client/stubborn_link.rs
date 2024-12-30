@@ -1,17 +1,18 @@
+use crate::stubborn_register_client::timer::TickHandler;
+use crate::transfer::{deserialize_ack, Acknowledgment};
+use crate::{serialize_register_command, RegisterCommand, SystemRegisterCommand};
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::sync::{Arc};
-use tokio::sync::Mutex;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use crate::{RegisterCommand, serialize_register_command, SystemRegisterCommand, SystemRegisterCommandContent};
-use crate::stubborn_register_client::timer::TimerHandle;
-use crate::transfer::{Acknowledgment, deserialize_ack, AckType};
+use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct StubbornLink {
-    pending_acks: Arc<Mutex<HashMap<Acknowledgment, TimerHandle>>>,
+    pending_acks: Arc<Mutex<HashMap<Acknowledgment, TickHandler>>>,
     msg_tx: UnboundedSender<Arc<SystemRegisterCommand>>,
     target_rank: u8,
 }
@@ -36,8 +37,8 @@ impl StubbornLink {
 
     pub async fn add_msg(&self, msg: Arc<SystemRegisterCommand>) {
         let ack = Acknowledgment::from_cmd(msg.deref().clone(), self.target_rank);
-        
-        let timer = TimerHandle::start_timer(msg, self.msg_tx.clone());
+
+        let timer = TickHandler::start_ticks(msg, Duration::from_millis(500),self.msg_tx.clone());
         self.pending_acks.lock().await.insert(ack, timer);
     }
 

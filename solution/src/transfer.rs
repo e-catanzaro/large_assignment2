@@ -1,9 +1,8 @@
-use crate::transfer::OperationError::{InvalidMac, InvalidSector};
-use crate::{is_hmac_tag_valid, HmacSha256, OperationReturn, OperationSuccess, ReadReturn, SectorVec, StatusCode, SystemRegisterCommand, SystemRegisterCommandContent, MAGIC_NUMBER, SECTOR_SIZE};
+use crate::{is_hmac_tag_valid, HmacSha256, OperationReturn, OperationSuccess, StatusCode, SystemRegisterCommand, SystemRegisterCommandContent, MAGIC_NUMBER};
 use hmac::Mac;
 use std::collections::VecDeque;
-use std::io::ErrorKind::InvalidInput;
 use std::io::Error;
+use std::io::ErrorKind::InvalidInput;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use uuid::Uuid;
 
@@ -61,69 +60,6 @@ pub async fn serialize_response(response: &RegisterResponse,
 
     writer.write_all(&raw_message).await?;
     Ok(())
-}
-
-pub async fn deserialize_response(data: &mut (dyn AsyncRead + Send + Unpin),
-                                  hmac_key: &[u8; 64],) -> Result<(RegisterResponse, bool), Error>{
-    let mut window : VecDeque<u8> = VecDeque::from(vec![0;4]);
-    data.read_exact(&mut window.make_contiguous()).await?;
-
-    while window.make_contiguous() != MAGIC_NUMBER {
-        window.pop_front();
-        window.push_back(data.read_u8().await?);
-    }
-
-    let mut padding = [0u8; 4];
-    data.read_exact(&mut padding).await?;
-    let mut raw_message= [MAGIC_NUMBER.to_vec(), padding.to_vec()].concat();
-    let message_type : u8 = padding[3];
-    let ret_type : u8 = padding[2];
-
-    match message_type{
-        0x41 => {
-            let mut message_content = [0u8;16 + SECTOR_SIZE];
-            data.read_exact(&mut message_content).await?;
-            raw_message = [ raw_message, message_content.to_vec()].concat();
-        },
-        0x42 => {
-            let mut message_content = [0u8;16];
-            data.read_exact(&mut message_content).await?;
-            raw_message = [ raw_message, message_content.to_vec()].concat();
-        },
-        _ => return Err(Error::new(InvalidInput, "invalid message type"))
-    }
-
-
-    let mut hash : [u8;32] = [0u8;32];
-    data.read_exact(&mut hash).await?;
-    raw_message = [raw_message, hash.to_vec()].concat();
-
-    let ret = match ret_type {
-        0x0 =>{
-            let mut req_id = [0u8;8];
-            req_id.copy_from_slice(&raw_message[8..16]);
-
-            OperationResult::Return(OperationSuccess{
-                request_identifier: u64::from_be_bytes(req_id),
-                op_return: match message_type {
-                    0x41 => OperationReturn::Read(ReadReturn{ read_data: SectorVec{0: raw_message[16..16+SECTOR_SIZE].to_vec()} } ),
-                    0x42 => OperationReturn::Write,
-                    _ => unreachable!(),
-                },
-            })
-        }
-        0x1 => OperationResult::Error(InvalidMac(0)),
-        0x2 => OperationResult::Error(InvalidSector(0)),
-        _ => return Err(Error::new(InvalidInput, "invalid message type"))
-    };
-
-    let reg_response = match message_type {
-        0x41 => RegisterResponse::ReadResponse(ret),
-        0x42 => RegisterResponse::WriteResponse(ret),
-        _ => unreachable!()
-    };
-
-    Ok((reg_response,  is_hmac_tag_valid(raw_message.as_slice(), hmac_key)))
 }
 
 #[derive(Clone,Hash,Eq,PartialEq,Copy)]

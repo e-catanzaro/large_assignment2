@@ -1,6 +1,6 @@
 use crate::registers_manager::RegistersManager;
 use crate::stubborn_register_client::StubbornRegisterClient;
-use crate::transfer::{serialize_ack, serialize_response, AckType, Acknowledgment, OperationError, OperationResult, RegisterResponse};
+use crate::transfer::{serialize_ack, serialize_response, Acknowledgment, OperationError, OperationResult, RegisterResponse};
 pub use atomic_register_public::*;
 pub use domain::*;
 use hmac::Hmac;
@@ -32,11 +32,11 @@ type SuccessCallbackType = Box<dyn FnOnce(OperationSuccess) -> Pin<Box<dyn Futur
 type SystemCallbackType = Box<dyn FnOnce() -> Pin<Box<dyn Future<Output=()> + std::marker::Send>> + std::marker::Send + Sync>;
 
 pub async fn run_register_process(config: Configuration) {
-    let system_key = Arc::new(config.hmac_system_key);
-    let client_key = Arc::new(config.hmac_client_key);
-
     let (system_tx, system_rx) = unbounded_channel();
     let (client_tx, client_rx) = unbounded_channel();
+
+    let system_key = Arc::new(config.hmac_system_key);
+    let client_key = Arc::new(config.hmac_client_key);
 
     let sectors_manager = build_sectors_manager(config.public.storage_dir).await;
     let register_client = Arc::new(StubbornRegisterClient::build(config.public.tcp_locations.clone(), system_key.clone(), config.public.self_rank, system_tx.clone()));
